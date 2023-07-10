@@ -5,7 +5,7 @@
 
 🥳 本项目根据经典论文进行复现：Dynamic adaptive DNN surgery for inference acceleration on the edge
 
-论文链接🔗：https://github.com/Tjyy-1223/Neurosurgeon/blob/main/paper/Collaborative_Intelligence%20Between_the_Cloud_and_Mobile_Edge.pdf
+论文链接🔗：[DADS](https://github.com/Tjyy-1223/DADS/blob/main/paper/DADS.pdf)
 
 ## 研究内容
 
