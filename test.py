@@ -5,13 +5,9 @@ from models.InceptionBlock import InceptionBlock
 from models.IncetiopnBlockV2 import InceptionBlockV2
 from models.EasyModel import EasyModel
 
+import torch
+
 if __name__ == '__main__':
+    x = torch.rand((1,3,224,224))
+    print(str(x[0][0][0][:5]))
 
-
-    model = EasyModel()
-    # block = model[8]
-
-    for layer in model:
-
-        print(layer)
-        print("----------------")
