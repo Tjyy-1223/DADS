@@ -97,6 +97,20 @@ class InceptionBlockV2(nn.Module):
                 self.accumulate_len.append(self.accumulate_len[i-1] + len(self.branch_list[i]))
 
 
+        # 如果是DAG拓扑结构需要自己设计好下面几个设定
+        self.has_dag_topology = True
+        self.record_output_list = [self.accumulate_len[0], self.accumulate_len[1], self.accumulate_len[2],
+                                   self.accumulate_len[3], self.accumulate_len[4]]  # 哪几层需要保存输出
+        self.dag_dict = {  # 定义DAG拓扑相关层的输入
+            self.accumulate_len[0] + 1: self.accumulate_len[0],
+            self.accumulate_len[1] + 1: self.accumulate_len[0],
+            self.accumulate_len[2] + 1: self.accumulate_len[0],
+            self.accumulate_len[3] + 1: self.accumulate_len[0],
+            self.accumulate_len[4] + 1: [self.accumulate_len[1], self.accumulate_len[2],
+                                         self.accumulate_len[3], self.accumulate_len[4], ]
+        }
+
+
     def _forward(self,x: Tensor) -> List[Tensor]:
         branch1 = self.branch1(x)
         branch2 = self.branch2(x)

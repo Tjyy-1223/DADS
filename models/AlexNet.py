@@ -9,6 +9,7 @@ class AlexNet(nn.Module):
         num_classes: AlexNet的输出维度，默认为1000
         """
         super(AlexNet, self).__init__()
+        self.has_dag_topology = False
         self.layers = nn.Sequential(
             nn.Conv2d(input_channels,64,kernel_size=(11,11),stride=(4,4),padding=1),
             nn.ReLU(inplace=True),

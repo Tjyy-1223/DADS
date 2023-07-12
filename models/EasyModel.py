@@ -38,7 +38,6 @@ class EasyModel(nn.Module):
     """
     def __init__(self,in_channels:int = 3) -> None:
         super(EasyModel, self).__init__()
-
         self.preInference = nn.Conv2d(in_channels=in_channels,out_channels=192,kernel_size=(7,7), stride=(2,2), padding=3)
         self.up_conv = nn.Conv2d(in_channels=192,out_channels=32,kernel_size=(3,3),padding=1)
         self.down_conv = nn.Conv2d(in_channels=192,out_channels=16,kernel_size=(3,3),padding=1)
@@ -46,6 +45,14 @@ class EasyModel(nn.Module):
 
         self.layer_list = [self.preInference, self.up_conv, self.down_conv, self.concat]
 
+        # 如果是DAG拓扑结构需要自己设计好下面几个设定
+        self.has_dag_topology = True
+        self.record_output_list = [1,2,3]  # 哪几层需要保存输出
+        self.dag_dict = {   # 定义DAG拓扑相关层的输入
+            2: 1,
+            3: 1,
+            4: [2, 3],
+        }
 
     def _forward(self,x: Tensor) -> List[Tensor]:
         x = self.preInference(x)

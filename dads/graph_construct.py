@@ -1,26 +1,81 @@
 import networkx as nx
 import sys
-import pickle
-
-sys.path.append("../DNN_Architecture")
-sys.path.append("../latency_predictor")
-sys.path.append("../Net_Transmission")
-sys.path.append("../work2_Edgent")
-from collections.abc import Iterable
-import time
-import MobileNet
-import MobileNet2
-import ResNet
-import ResNet2
-import GoogLeNet
-import GoogLeNet2
-import Inceptionv2
-
-import predictor  # 用于预测计算时延
-import speed_validate
 
 inf = sys.maxsize
 construction_time = 0.0
+
+import warnings
+warnings.filterwarnings('ignore')
+
+
+def add_graph_edge(graph, vertex_index, input, layer_index, layer,
+                 dict_input_size_node_name, dict_node_layer, dict_layer_input_size, dict_layer_output,
+                 record_flag):
+    """
+    向一个有向图中添加
+    :param graph: 向哪个有向图中添加
+    :param vertex_index: 当前构建的顶点编号
+    :param input: 当前层的输入
+    :param layer_index: 当前层
+    :param layer: 当前层类型
+    :param dict_input_size_node_name:   字典：key:输入 value:对应的顶点编号
+    :param dict_node_layer:             字典：key:顶点编号 value:对应DNN中第几层
+    :param dict_layer_input_size:       字典：key:DNN中第几层 value:对应的输入大小
+    :param dict_layer_output:            字典：key:DNN中第几层 value:对应的输出
+    :param record_flag: 只有某些关键层才会记录层的输出
+    :return: 当前构建的顶点数目 vertex_index ，以及当前层的输出（会用于作为下一层的输入）
+    """
+    cloud_vertex = "cloud"  # 云端设备节点
+    edge_vertex = "edge"  # 边缘设备节点
+
+    # 获取当前层在边缘端设备上的推理时延以及在云端设备上的推理时延
+    edge_lat = 5
+    cloud_lat = 5
+    # edge_lat = predictor.predict_layer_latency(layer,x,edge_device=True)
+    # cloud_lat = predictor.predict_layer_latency(layer,x,edge_device=False)
+
+    # 获取当前层需要的传输时延
+    # transmission_lat = get_transmission_lat(x,network_type=net_type,define_speed=define_speed)
+    transmission_lat = 5
+
+    # 一层dnn layer可以构建一条边，而构建一条边需要两个顶点
+    # dict_input_size_node_name 可以根据输入数据大小构建对应的图顶点
+    # 所以可以在执行dnn layer的前后分别构建 start_node以及end_node
+    start_node, end_node, record_input = None, None, None
+
+    if isinstance(input,list):
+        layer_out = None
+        record_input = input
+        for one_input in input:
+            vertex_index, start_node = get_node_name(one_input, vertex_index, dict_input_size_node_name)
+            layer_out = layer(input)
+            vertex_index, end_node = get_node_name(layer_out, vertex_index, dict_input_size_node_name)
+
+            # 例如 input 是长度为n的列表，则需要构建n个边
+            graph.add_edge(start_node, end_node, capacity=transmission_lat)  # 添加从前一个节点到当前节点的边
+        input = layer_out
+    else:  # 常规构建
+        vertex_index, start_node = get_node_name(input, vertex_index, dict_input_size_node_name)
+        record_input = input
+        input = layer(input)
+        vertex_index, end_node = get_node_name(input, vertex_index, dict_input_size_node_name)
+
+        # 避免无效层覆盖原始数据 用这种方式可以过滤掉relu层或dropout层
+        if start_node == end_node:
+            return vertex_index,input  # 不需要进行构建
+        graph.add_edge(start_node, end_node, capacity=transmission_lat)  # 添加从前一个节点到当前节点的边
+
+    # 注意：end_node可以用来在有向图中表示当前的 dnn-layer
+    graph.add_edge(edge_vertex, end_node, capacity=cloud_lat)  # 添加从边缘节点到dnn层的边
+    graph.add_edge(end_node, cloud_vertex, capacity=edge_lat)  # 添加从dnn层到云端设备的边
+
+    dict_node_layer[end_node] = layer_index + 1  # 记录有向图中的顶点对应的DNN的第几层
+    # dict_layer_input_size[layer_index + 1] = record_input.shape  # 记录DNN层中第i层对应的输入大小
+    if record_flag:
+        dict_layer_output[layer_index+1] = input  # 记录DNN层中第i层对应的输出
+
+    return vertex_index,input
+
 
 
 def graph_construct(model, input, bandwidth, net_type="wifi"):
@@ -32,7 +87,8 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     (3) 从dnn层-云端设备的边 权重设置为边端推理时延
     :param model: 传入dnn模型
     :param input: dnn模型的初始输入
-    :param bandwidth: 当前网络时延带宽，可由带宽监视器获取
+    :param bandwidth: 当前网络时延带宽，可由带宽监视器获取 MB/s
+    :param net_type: 当前网络类型 默认为 wifi
     :return: 构建好的有向图graph, dict_vertex_layer, dict_layer_input
 
     由于 GoogleNet 和 ResNet 不能用简单地 x = layer(x) 进行下一步执行
@@ -62,15 +118,16 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     dict_node_layer = {"v0": 0}  # 初始化v0对应的为初始输入
 
     """
-    dict_layer_input_size 字典的作用：
+    dict_layer_input_size 以及 dict_layer_input 字典的作用：
         :key 原DNN中第几层 layer_index
-        :value DNN中第 layer_index 的层输入大小
+        :value DNN中第 layer_index 的层输入以及输入的大小
     可以用于查找原模型中第 layer_index 层的输入是什么
     注意：
         layer_index = 0 代表初始输入 
         layer_index = n 获取的是原模型中 model[layer_index-1] 层的输入
     """
-    dict_layer_input = {0: None}  # 初始化第0层的大小为初始输入input.shape
+    dict_layer_input_size = {0:None}  # 第0层为初始输入 其输入记录为None
+    dict_layer_output = {0: input}  # 第0层为初始输入 其输出即为input
 
     cloud_vertex = "cloud"  # 云端设备节点
     edge_vertex = "edge"  # 边缘设备节点
@@ -80,39 +137,25 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     vertex_index = 0  # 构建图的顶点序号
 
     for layer_index, layer in enumerate(model):
-        # 获取当前层在边缘端设备上的推理时延以及在云端设备上的推理时延
-        edge_lat = 5
-        cloud_lat = 5
-        # edge_lat = predictor.predict_layer_latency(layer,x,edge_device=True)
-        # cloud_lat = predictor.predict_layer_latency(layer,x,edge_device=False)
+        # 对于某一层先检查其输入是否要进行修改
+        if model.has_dag_topology and (layer_index+1) in model.dag_dict.keys():
+            pre_input_cond = model.dag_dict[layer_index+1]  # 取出其前置输入条件
+            if isinstance(pre_input_cond, list):  # 如果其是一个列表，代表当前层有多个输入
+                input = []
+                for pre_index in pre_input_cond:  # 对于concat操作,输入应为一个列表
+                    input.append(dict_layer_output[pre_index])
+            else:  # 当前层的的输入从其他层或得
+                input = dict_layer_output[pre_input_cond]
 
-        # 获取当前层需要的传输时延
-        # transmission_lat = get_transmission_lat(x,network_type=net_type,define_speed=define_speed)
-        transmission_lat = 5
-
-        # 一层dnn layer可以构建一条边，而构建一条边需要两个顶点
-        # dict_input_size_node_name 可以根据输入数据大小构建对应的图顶点
-        # 所以可以在执行dnn layer的前后分别构建 start_node以及end_node
-        vertex_index, start_node = get_node_name(input, vertex_index, dict_input_size_node_name)
-        record_input = input
-        input = layer(input)
-        vertex_index, end_node = get_node_name(input, vertex_index, dict_input_size_node_name)
-
-        # 避免无效层覆盖原始数据 用这种方式可以过滤掉relu层或dropout层
-        if start_node == end_node:
-            continue  # 不需要进行构建
-
-        # 注意：end_node可以用来在有向图中表示当前的 dnn-layer
-        graph.add_edge(edge_vertex, end_node, capacity=cloud_lat)  # 添加从边缘节点到dnn层的边
-        graph.add_edge(end_node, cloud_vertex, capacity=edge_lat)  # 添加从dnn层到云端设备的边
-        graph.add_edge(start_node, end_node, capacity=transmission_lat)  # 添加从前一个节点到当前节点的边
-
-        dict_node_layer[end_node] = layer_index + 1  # 记录有向图中的顶点对应的DNN的第几层
-        dict_layer_input[layer_index + 1] = record_input.size  # 记录DNN层中第i层对应的输入大小
+        # 标记在模型中 record_output_list 中的DNN层需要记录输出
+        record_flag = model.has_dag_topology and (layer_index+1) in model.record_output_list
+        # 枸橘修改后的input进行边的构建
+        vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer, dict_input_size_node_name, dict_node_layer,
+                                           dict_layer_input_size, dict_layer_output, record_flag=record_flag)
 
     # 主要负责处理出度大于1的顶点
     prepare_for_partition(graph, vertex_index, dict_node_layer)
-    return graph, dict_node_layer, dict_layer_input
+    return graph, dict_node_layer, dict_layer_input_size
 
 
 def get_node_name(input, vertex_index, dict_input_size_node_name):
@@ -123,8 +166,13 @@ def get_node_name(input, vertex_index, dict_input_size_node_name):
     :param dict_input_size_node_name: 通过dict_for_input可以将 DNN layer 转化为有向图中的顶点 node_name
     :return: node name，构建DAG边所需要的首位节点name
     """
+    len_of_shape = len(input.shape)
     input_shape = str(input.shape)  # 获取当前input的大小
-    input_slice = str(input[0][0][0][:3])  # 获取input的前3个数据，保证数据的唯一性
+
+    input_slice = input
+    for _ in range(len_of_shape-1):
+        input_slice = input_slice[0]
+    input_slice = str(input_slice[:3])  # 获取input的前3个数据，保证数据的唯一性
 
     if (input_shape, input_slice) not in dict_input_size_node_name.keys():
         node_name = "v" + str(vertex_index)
@@ -195,86 +243,86 @@ def prepare_for_partition(graph, vertex_index, dict_node_layer):
         graph.add_edge(edge[0], edge[1], capacity=round(edge[2]["capacity"], 3))
     return vertex_index
 
-
-from dinic_algorithm import dinic
-
-
-def get_partition_point(graph, start, end, dict_vertex_layer):
-    """
-    根据构建好的模型 获得dnn对应的分割点在哪里 为云边协同构建新的协同推理模型
-    :param graph: 构建好的DAG架构图
-    :param start: min cut 起点
-    :param end: min cut 终点
-    :param dict_vertex_layer: 字典 存储顶点名称"v1" 与 dnn模型实际层的位置 layer index 1
-    :return: cut_set:min cut分割涉及的边，partition_edge : dnn分割涉及的节点，point_list dnn分割点
-    """
-    # 获得 min cut partition 策略
-    # print("start partition ........")
-    cut_value = dinic(graph)
-    print(f"dinic algorithm value: {cut_value}")
-    cut_value, partition = nx.minimum_cut(graph, start, end)
-    print(f"inner algorithm value: {cut_value}")
-    reachable, non_reachable = partition
-
-    # 获得 min-cut 分割的DNN edge 以及 最小分割涉及的 dege
-    cut_set = []
-    partition_edge = []
-    for u, nbrs in ((n, graph[n]) for n in reachable):
-        for v in nbrs:
-            if v in non_reachable:
-                if u != start and v != end:
-                    partition_edge.append((u, v))
-                cut_set.append((u, v))
-
-    cut_layer_list = []
-    for edge in partition_edge:
-        start_layer = dict_vertex_layer[edge[0]]
-        end_layer = dict_vertex_layer[edge[1]]
-        cut_layer_list.append((start_layer, end_layer))
-
-    cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
-    cut_value = round(cut_value, 3)
-    # print(f"function get partition point - compare : {cut_set_sum} , {cut_value} , {cut_set_sum == cut_value}")
-    # print(cut_set_sum)
-    assert cut_set_sum == cut_value
-
-    return cut_set, partition_edge, cut_layer_list
-
-
-def show_partition_layer(model, cut_layer_list):
-    """
-    展示从哪个 layer 对模型进行划分
-    :param model: 传入模型 方便展示
-    :param cut_layer_list: cut layer list 切割点列表
-    :return: show cut layer details
-    """
-    for cut_layer in cut_layer_list:
-        start_point = cut_layer[0]
-        end_point = cut_layer[1]
-
-        start_layer = "cloud inference" if start_point == 0 else model[start_point - 1]
-        end_layer = "cloud inference" if end_point == 0 else model[end_point - 1]
-
-        if start_layer == end_layer:
-            print(f"partition after layer {start_point} : \n{start_layer}")
-        else:
-            print(f"partition from layer {start_point} to layer {end_point}: \n"
-                  f"start layer : {start_layer}\n"
-                  f"end layer : {end_layer}")
-    print("--------------------------------------------------------")
-
-
-def get_transmission_lat(x, network_type, define_speed):
-    """
-    根据输入的x获得传输时延 network_type表示网络条件
-    3 - WI-FI , 2 - LTE , 1 - 3G
-    :param x: 输入的x
-    :param network_type: 网络条件状态
-    :return: network transmission latency
-    """
-    # print(network_type)
-    transport_size = len(pickle.dumps(x))
-    speed, speed_type = speed_validate.get_speed(network_type, define_speed)
-    speed_Bpms = speed_validate.get_speed_Bpms(speed=speed, speed_type=speed_type)
-    transmission_lat = transport_size / speed_Bpms
-    return transmission_lat
+#
+# from dinic_algorithm import dinic
+#
+#
+# def get_partition_point(graph, start, end, dict_vertex_layer):
+#     """
+#     根据构建好的模型 获得dnn对应的分割点在哪里 为云边协同构建新的协同推理模型
+#     :param graph: 构建好的DAG架构图
+#     :param start: min cut 起点
+#     :param end: min cut 终点
+#     :param dict_vertex_layer: 字典 存储顶点名称"v1" 与 dnn模型实际层的位置 layer index 1
+#     :return: cut_set:min cut分割涉及的边，partition_edge : dnn分割涉及的节点，point_list dnn分割点
+#     """
+#     # 获得 min cut partition 策略
+#     # print("start partition ........")
+#     cut_value = dinic(graph)
+#     print(f"dinic algorithm value: {cut_value}")
+#     cut_value, partition = nx.minimum_cut(graph, start, end)
+#     print(f"inner algorithm value: {cut_value}")
+#     reachable, non_reachable = partition
+#
+#     # 获得 min-cut 分割的DNN edge 以及 最小分割涉及的 dege
+#     cut_set = []
+#     partition_edge = []
+#     for u, nbrs in ((n, graph[n]) for n in reachable):
+#         for v in nbrs:
+#             if v in non_reachable:
+#                 if u != start and v != end:
+#                     partition_edge.append((u, v))
+#                 cut_set.append((u, v))
+#
+#     cut_layer_list = []
+#     for edge in partition_edge:
+#         start_layer = dict_vertex_layer[edge[0]]
+#         end_layer = dict_vertex_layer[edge[1]]
+#         cut_layer_list.append((start_layer, end_layer))
+#
+#     cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
+#     cut_value = round(cut_value, 3)
+#     # print(f"function get partition point - compare : {cut_set_sum} , {cut_value} , {cut_set_sum == cut_value}")
+#     # print(cut_set_sum)
+#     assert cut_set_sum == cut_value
+#
+#     return cut_set, partition_edge, cut_layer_list
+#
+#
+# def show_partition_layer(model, cut_layer_list):
+#     """
+#     展示从哪个 layer 对模型进行划分
+#     :param model: 传入模型 方便展示
+#     :param cut_layer_list: cut layer list 切割点列表
+#     :return: show cut layer details
+#     """
+#     for cut_layer in cut_layer_list:
+#         start_point = cut_layer[0]
+#         end_point = cut_layer[1]
+#
+#         start_layer = "cloud inference" if start_point == 0 else model[start_point - 1]
+#         end_layer = "cloud inference" if end_point == 0 else model[end_point - 1]
+#
+#         if start_layer == end_layer:
+#             print(f"partition after layer {start_point} : \n{start_layer}")
+#         else:
+#             print(f"partition from layer {start_point} to layer {end_point}: \n"
+#                   f"start layer : {start_layer}\n"
+#                   f"end layer : {end_layer}")
+#     print("--------------------------------------------------------")
+#
+#
+# def get_transmission_lat(x, network_type, define_speed):
+#     """
+#     根据输入的x获得传输时延 network_type表示网络条件
+#     3 - WI-FI , 2 - LTE , 1 - 3G
+#     :param x: 输入的x
+#     :param network_type: 网络条件状态
+#     :return: network transmission latency
+#     """
+#     # print(network_type)
+#     transport_size = len(pickle.dumps(x))
+#     speed, speed_type = speed_validate.get_speed(network_type, define_speed)
+#     speed_Bpms = speed_validate.get_speed_Bpms(speed=speed, speed_type=speed_type)
+#     transmission_lat = transport_size / speed_Bpms
+#     return transmission_lat

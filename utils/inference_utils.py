@@ -26,7 +26,7 @@ def get_dnn_model(arg: str):
         return EasyModel(in_channels=input_channels)
     elif arg == "inception":
         return InceptionBlock(in_channels=input_channels)
-    elif arg == "inception2":
+    elif arg == "inception_v2":
         return InceptionBlockV2(in_channels=input_channels)
     else:
         raise RuntimeError("没有对应的DNN模型")

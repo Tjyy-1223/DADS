@@ -10,6 +10,8 @@ class VggNet(nn.Module):
             num_classes: AlexNet的输出维度，默认为1000
         """
         super(VggNet, self).__init__()
+        self.has_dag_topology = False
+
         self.layers = nn.Sequential(
             nn.Conv2d(input_channels, 3, kernel_size=(3,3), stride=(1, 1), padding=(1,1)),
             nn.ReLU(inplace=True),
