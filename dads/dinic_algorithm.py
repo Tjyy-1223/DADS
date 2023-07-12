@@ -237,3 +237,71 @@ if __name__ == '__main__':
 
 
 
+
+# from dinic_algorithm import dinic
+#
+#
+# def get_partition_point(graph, start, end, dict_vertex_layer):
+#     """
+#     根据构建好的模型 获得dnn对应的分割点在哪里 为云边协同构建新的协同推理模型
+#     :param graph: 构建好的DAG架构图
+#     :param start: min cut 起点
+#     :param end: min cut 终点
+#     :param dict_vertex_layer: 字典 存储顶点名称"v1" 与 dnn模型实际层的位置 layer index 1
+#     :return: cut_set:min cut分割涉及的边，partition_edge : dnn分割涉及的节点，point_list dnn分割点
+#     """
+#     # 获得 min cut partition 策略
+#     # print("start partition ........")
+#     cut_value = dinic(graph)
+#     print(f"dinic algorithm value: {cut_value}")
+#     cut_value, partition = nx.minimum_cut(graph, start, end)
+#     print(f"inner algorithm value: {cut_value}")
+#     reachable, non_reachable = partition
+#
+#     # 获得 min-cut 分割的DNN edge 以及 最小分割涉及的 dege
+#     cut_set = []
+#     partition_edge = []
+#     for u, nbrs in ((n, graph[n]) for n in reachable):
+#         for v in nbrs:
+#             if v in non_reachable:
+#                 if u != start and v != end:
+#                     partition_edge.append((u, v))
+#                 cut_set.append((u, v))
+#
+#     cut_layer_list = []
+#     for edge in partition_edge:
+#         start_layer = dict_vertex_layer[edge[0]]
+#         end_layer = dict_vertex_layer[edge[1]]
+#         cut_layer_list.append((start_layer, end_layer))
+#
+#     cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
+#     cut_value = round(cut_value, 3)
+#     # print(f"function get partition point - compare : {cut_set_sum} , {cut_value} , {cut_set_sum == cut_value}")
+#     # print(cut_set_sum)
+#     assert cut_set_sum == cut_value
+#
+#     return cut_set, partition_edge, cut_layer_list
+#
+#
+# def show_partition_layer(model, cut_layer_list):
+#     """
+#     展示从哪个 layer 对模型进行划分
+#     :param model: 传入模型 方便展示
+#     :param cut_layer_list: cut layer list 切割点列表
+#     :return: show cut layer details
+#     """
+#     for cut_layer in cut_layer_list:
+#         start_point = cut_layer[0]
+#         end_point = cut_layer[1]
+#
+#         start_layer = "cloud inference" if start_point == 0 else model[start_point - 1]
+#         end_layer = "cloud inference" if end_point == 0 else model[end_point - 1]
+#
+#         if start_layer == end_layer:
+#             print(f"partition after layer {start_point} : \n{start_layer}")
+#         else:
+#             print(f"partition from layer {start_point} to layer {end_point}: \n"
+#                   f"start layer : {start_layer}\n"
+#                   f"end layer : {end_layer}")
+#     print("--------------------------------------------------------")
+#
