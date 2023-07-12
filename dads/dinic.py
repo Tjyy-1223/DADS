@@ -5,56 +5,6 @@ import sys
 from collections import deque
 from decimal import Decimal
 
-def get_example_graph():
-    """
-    获取一个用来测试的 digraph
-    :return: DAG graph
-    """
-    inf = sys.maxsize
-    vertex = []
-    for i in range(10):
-        if i == 1 or i == 5:
-            vertex.append('l' + str(i) + '+')
-        vertex.append('l' + str(i))
-
-    # for i in range(4):
-    #     vertex.append('l' + str(i))
-
-    edges = [
-        ['l0', 'l1+', 0.12],
-        ['l1+', 'l1', 0.05],
-        ['l1', 'l2', inf],
-        ['l1', 'l3', inf],
-        ['l2', 'l4', 0.7],
-        ['l3', 'l4', 3],
-        ['l4', 'l5+', 5],
-        ['l5+', 'l5', 0.05],
-        ['l5', 'l6', inf],
-        ['l5', 'l7', inf],
-        ['l6', 'l8', 0.10],
-        ['l7', 'l8', 0.001],
-        ['l8', 'l9', 2],
-    ]
-
-    # edges = [
-    #     ['l0', 'l1', 3],
-    #     ['l0', 'l2', 4],
-    #     ['l1', 'l4', 7],
-    #     ['l2', 'l4', 1],
-    # ]
-
-    # get the DAG Graph
-    G1 = nx.DiGraph()
-    for edge in edges:
-        G1.add_edge(edge[0], edge[1], capacity=edge[2])
-
-    G1.add_edge('edge', 'l0', capacity=inf)
-    for vex in vertex[1:]:
-        G1.add_edge('edge', vex, capacity=0.5)
-        G1.add_edge(vex, 'cloud', capacity=1.1)
-    return G1
-
-
 def create_residual_network(origin_digraph):
     """
     根据传入的原始有向图 构建初始化残差网络图
@@ -62,9 +12,6 @@ def create_residual_network(origin_digraph):
     :param origin_digraph: 原始构建好的有向图
     :return: 构建好的初始残差图 residual_graph
     """
-    # residual_graph = nx.DiGraph()
-    # residual_graph.add_nodes_from(origin_digraph)
-    # residual_graph.add_weighted_edges_from(origin_digraph.edges(data=True))
     return origin_digraph.copy()
 
 
@@ -73,11 +20,9 @@ def bfs_for_level_digraph(residual_digraph):
     """
     根据传入的 residual digraph 使用bfs构建 level digraph
     :param residual_digraph: 残差网络
-    :return: 构建好的层级网络信息 level_dict 以及 最后一个节点是否在dict中(boolean):cloud_node_in_dict
+    :return: 构建好的层级网络信息 level_dict
+             以及 最后一个节点是否在dict中(boolean):cloud_node_in_dict , 用于dinic算法终止条件的判断
     """
-    # print("=============================")
-    # print(residual_digraph)
-    # print(residual_digraph.edges(data=True))
     level_dict = {}  # 记录节点是否已经被被访问过 同时记录节点的层数
     start_node = 'edge'
     level_dict[start_node] = 1
@@ -103,10 +48,6 @@ def bfs_for_level_digraph(residual_digraph):
                 level_dict[neighbor_nodes] = now_level + 1
                 Q.append(neighbor_nodes)
 
-    # 可以和下面的标准bfs进行对比 检测上面的bfs流程是否正确
-    # print("----------------------------")
-    # print("标准的network bfs如下")
-    # print(list(nx.bfs_tree(residual_digraph,source=start_node)))
 
     # 判断结束节点t是否保存在层级图中
     end_node = 'cloud'
@@ -161,13 +102,12 @@ def dfs_once(residual_graph,level_dict,dfs_start_node,augment_value):
     return augment_value - tmp
 
 
-def dinic(origin_digraph):
+def dinic_algorithm(origin_digraph):
     """
     对有向图使用dinic算法找到 最大流、最小割的解决策略
     :param origin_digraph: 原始构建好的有向图
-    :return: 目前是返回max-flow求解出的最大流的值（对应为min-cut最小割的值）
+    :return: min_cut_value, reachable, non_reachable
     """
-
     min_cut_value = 0
     inf = sys.maxsize
 
@@ -198,110 +138,40 @@ def dinic(origin_digraph):
 
         # 当本阶段dfs遍历结束之后 ，重新生成新的bfs - level digraph进行循环：知道终点不能表示在level digraph中
         level_dict, cloud_node_in_dict = bfs_for_level_digraph(residual_graph)
-    return min_cut_value
+
+    # 根据最后的 residual_graph (level_dict)， 从edge可以到达的点属于 reachable，其他顶点属于 non_reachable
+    reachable, non_reachable = set(), set()
+    for node in residual_graph:
+        if node in level_dict.keys():   reachable.add(node)
+        else:   non_reachable.add(node)
+
+    return min_cut_value, reachable, non_reachable
 
 
-
-def change_di(origin_digraph):
-    origin_digraph.add_edge('l6', 'l8', capacity=2000)
-
-
-import time
-if __name__ == '__main__':
-    # 获取对应的有向图 digraph
-    origin_digraph = get_example_graph()
-
-    # use min-cut algorithm to get cut-value and partition
+def get_min_cut_set(graph, min_cut_value, reachable, non_reachable):
+    """
+    根据最小割算法得到的 min_cut_value, reachable, non_reachable 获取对应的最小割集
+    可以根据最小割集帮助 DNN 找到对应的划分层
+    :param graph: 构建好的有向图
+    :param min_cut_value: 最小割的值，用于assert验证，确保划分正确
+    :param reachable: 划分后可以到达的顶点
+    :param non_reachable: 划分后不可到达的顶点
+    :return: min_cut_set 最小割集，partition_edge表示在DNN模型中的划分点（即不包含 edge 和 cloud 相关的边）
+    """
     start = 'edge'
     end = 'cloud'
 
-    print("----------------------------------")
-    start_time = time.perf_counter()
+    cut_set = []
+    partition_edge = []
+    for u, nbrs in ((n, graph[n]) for n in reachable):
+        for v in nbrs:
+            if v in non_reachable:
+                if u != start and v != end:
+                    partition_edge.append((u, v))
+                cut_set.append((u, v))
 
-    cut_value, partition = nx.minimum_cut(origin_digraph, start, end)
-    reachable, non_reachable = partition
-    print(cut_value)
-    # print(reachable)
-    # print(non_reachable)
-
-    end_time = time.perf_counter()
-    curr_time = end_time - start_time
-    print(curr_time)
-
-    print("----------------------------------")
-    start_time = time.perf_counter()
-    print(dinic(origin_digraph))
-    end_time = time.perf_counter()
-    curr_time = end_time - start_time
-    print(curr_time)
-
-
-
-
-# from dinic_algorithm import dinic
-#
-#
-# def get_partition_point(graph, start, end, dict_vertex_layer):
-#     """
-#     根据构建好的模型 获得dnn对应的分割点在哪里 为云边协同构建新的协同推理模型
-#     :param graph: 构建好的DAG架构图
-#     :param start: min cut 起点
-#     :param end: min cut 终点
-#     :param dict_vertex_layer: 字典 存储顶点名称"v1" 与 dnn模型实际层的位置 layer index 1
-#     :return: cut_set:min cut分割涉及的边，partition_edge : dnn分割涉及的节点，point_list dnn分割点
-#     """
-#     # 获得 min cut partition 策略
-#     # print("start partition ........")
-#     cut_value = dinic(graph)
-#     print(f"dinic algorithm value: {cut_value}")
-#     cut_value, partition = nx.minimum_cut(graph, start, end)
-#     print(f"inner algorithm value: {cut_value}")
-#     reachable, non_reachable = partition
-#
-#     # 获得 min-cut 分割的DNN edge 以及 最小分割涉及的 dege
-#     cut_set = []
-#     partition_edge = []
-#     for u, nbrs in ((n, graph[n]) for n in reachable):
-#         for v in nbrs:
-#             if v in non_reachable:
-#                 if u != start and v != end:
-#                     partition_edge.append((u, v))
-#                 cut_set.append((u, v))
-#
-#     cut_layer_list = []
-#     for edge in partition_edge:
-#         start_layer = dict_vertex_layer[edge[0]]
-#         end_layer = dict_vertex_layer[edge[1]]
-#         cut_layer_list.append((start_layer, end_layer))
-#
-#     cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
-#     cut_value = round(cut_value, 3)
-#     # print(f"function get partition point - compare : {cut_set_sum} , {cut_value} , {cut_set_sum == cut_value}")
-#     # print(cut_set_sum)
-#     assert cut_set_sum == cut_value
-#
-#     return cut_set, partition_edge, cut_layer_list
-#
-#
-# def show_partition_layer(model, cut_layer_list):
-#     """
-#     展示从哪个 layer 对模型进行划分
-#     :param model: 传入模型 方便展示
-#     :param cut_layer_list: cut layer list 切割点列表
-#     :return: show cut layer details
-#     """
-#     for cut_layer in cut_layer_list:
-#         start_point = cut_layer[0]
-#         end_point = cut_layer[1]
-#
-#         start_layer = "cloud inference" if start_point == 0 else model[start_point - 1]
-#         end_layer = "cloud inference" if end_point == 0 else model[end_point - 1]
-#
-#         if start_layer == end_layer:
-#             print(f"partition after layer {start_point} : \n{start_layer}")
-#         else:
-#             print(f"partition from layer {start_point} to layer {end_point}: \n"
-#                   f"start layer : {start_layer}\n"
-#                   f"end layer : {end_layer}")
-#     print("--------------------------------------------------------")
-#
+    # 通过 cut-set 得到的最小割值
+    cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
+    min_cut_value = round(min_cut_value,3)  # 通过 dinic 算法得到的最小割值
+    assert cut_set_sum == min_cut_value  # 确保二者相等才可以得正确的划分
+    return cut_set, partition_edge

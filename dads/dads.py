@@ -1,74 +1,7 @@
 import networkx as nx
 import sys
 import torch
-import DAG_utils
-sys.path.append("../DNN_Architecture")
-sys.path.append("../work1_Neuronsurgeon")
-sys.path.append("../work2_Edgent")
-import function
-from collections.abc import Iterable
-import torch.nn as nn
-import ResNet
-import ResNet2
-import GoogLeNet
-import GoogLeNet2
-import Inceptionv2
 
-from MobileNet import InvertedResidual
-def test_MobileNet_InvertedResidual():
-    """
-    测试block : MobileNet - InvertedResidual、ConvNormActivation
-    :return:
-    """
-    x = torch.rand((1, 64, 56, 56))
-    # InvertedResidual_block = InvertedResidual(64, 16, stride=1, expand_ratio=1)
-    InvertedResidual_block = InvertedResidual(64, 128, stride=1, expand_ratio=0.5)
-    InvertedResidual_block.eval()
-
-    print(InvertedResidual_block)
-
-    partition, cut_value = DAG_utils.get_block_value(InvertedResidual_block, x, show=True)
-    reachable, non_reachable = partition
-
-    print(reachable)
-    print(non_reachable)
-    print(cut_value)
-    print("============================")
-
-
-
-
-def test_resnet_BasicBlock():
-    in_planes = 64
-    planes = 64
-    stride = 1
-    down_sample = nn.Sequential(
-        nn.Conv2d(in_planes, planes,kernel_size=(1,1),stride=(stride,stride)),
-        nn.BatchNorm2d(planes)
-    )
-
-    block = ResNet.BasicBlock(in_planes, planes, stride, down_sample, nn.BatchNorm2d)
-
-    x = torch.rand((1,64,56,56))
-    block =function.getDnnModel(4)[4]
-    print(block)
-
-    DAG_utils.get_resnet_block_value(block,x,show = True)
-
-
-def test_google_Inception():
-    x = torch.rand((1,192,30,30))
-    inception = GoogLeNet.Inception(192, 16, 16, 16, 16, 32, 32)
-
-    graph,dict_vertex_layer = DAG_utils.get_google_inception_block_value(inception,x,show=False,getgraph=True)
-    start,end = 'edge','cloud'
-
-    # 显示从哪里划分
-    print("=============================")
-    _,_,cut_layer_list = DAG_utils.get_partition_point(graph,start,end,dict_vertex_layer)
-    DAG_utils.show_partition_layer(inception,cut_layer_list)
-
-    # print(DAG_utils.get_transmission_lat(x, network_type=3))
 
 
 def recursion_partition_dnn(model,cut_layer_list,dict_layer_input,now_depth,limit_depth,dads=False):
