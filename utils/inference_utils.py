@@ -32,34 +32,6 @@ def get_dnn_model(arg: str):
         raise RuntimeError("没有对应的DNN模型")
 
 
-def model_partition(model, index):
-    """
-    model_partition函数可以将一个整体的model,划分成两个部分
-    划分的大致思路：
-        如选定第index层对模型进行划分 ，则代表在第index后对模型进行划分
-        将index层之前的层包括第index层 - 封装进edge_model中交给边缘端设备推理
-        将index之后的层 - 封装进cloud_model交给云端设备推理
-    举例：在第index层之后对模型进行划分
-    index = 0 - 代表在初始输入进行划分
-    index = 1 - 代表在第1层后对模型进行划分,edge_cloud包括第1层
-
-    :param model: 传入模型
-    :param index: 模型划分点
-    :return: 划分之后的边端模型和云端模型
-    """
-    edge_model = nn.Sequential()
-    cloud_model = nn.Sequential()
-    idx = 1
-    for layer in model:
-        if idx <= index:
-            edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
-        else:
-            cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
-        idx += 1
-    return edge_model, cloud_model
-
-
-
 def show_model_constructor(model,skip=True):
     """
     展示DNN各层结构

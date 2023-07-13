@@ -1,6 +1,49 @@
-import networkx as nx
-import sys
 import torch
+from graph_construct import graph_construct
+from dinic import dinic_algorithm,get_min_cut_set
+
+def algorithm_DSL(model, model_input, bandwidth, net_type="wifi"):
+    """
+    在低负载情况下为传入模型选择最优分割策略
+    :param model: 传入DNN模型
+    :param model_input: 模型输入
+    :param bandwidth: 网络带宽 MB/s
+    :param net_type: 当前网络带宽状况，默认为 "wifi"
+    :return: 有向图中的对应的割集（不包含edge顶点和cloud顶点）以及划分过程会用到的 dict_node_layer，记录了顶点对应了第几层
+    """
+    # 构建对应的有向图
+    graph, dict_node_layer, dict_layer_input_size = graph_construct(model, model_input, bandwidth=bandwidth, net_type=net_type)
+    # min_cut_value表示最短推理时延，reachable表示需要放在边缘端推理的顶点， non_reachable表示放在云端推理的顶点
+    min_cut_value, reachable, non_reachable = dinic_algorithm(graph)
+    # partition_edge表示图中需要切割的边
+    _, graph_partition_edge = get_min_cut_set(graph, min_cut_value, reachable, non_reachable)
+    return graph_partition_edge,dict_node_layer
+
+
+def get_partition_points(partition_edge, dict_node_layer):
+    """
+    根据有向图的割集 graph_partition_edge 转换成DNN模型切分点 model_partition_edge
+    :param partition_edge:
+    :param dict_node_layer:
+    :return:
+    """
+
+
+def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
+    """
+    为DNN模型选择最优划分策略，即将 图中顶点 partition_edge --转化为--> DNN模型第几层进行划分
+    :param model: 传入DNN模型
+    :param model_input: 模型输入
+    :param bandwidth: 网络带宽 MB/s
+    :param net_type: 当前网络带宽状况，默认为 "wifi"
+    :return: cut_layer_list 在哪一层之后进行划分
+    """
+    # 获得图中的割集以及dict_node_layer字典
+    partition_edge, dict_node_layer = algorithm_DSL(model, model_input, bandwidth, net_type)
+
+
+
+
 
 
 

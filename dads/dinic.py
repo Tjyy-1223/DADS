@@ -162,16 +162,16 @@ def get_min_cut_set(graph, min_cut_value, reachable, non_reachable):
     end = 'cloud'
 
     cut_set = []
-    partition_edge = []
+    graph_partition_edge = []
     for u, nbrs in ((n, graph[n]) for n in reachable):
         for v in nbrs:
             if v in non_reachable:
                 if u != start and v != end:
-                    partition_edge.append((u, v))
+                    graph_partition_edge.append((u, v))
                 cut_set.append((u, v))
 
     # 通过 cut-set 得到的最小割值
     cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
     min_cut_value = round(min_cut_value,3)  # 通过 dinic 算法得到的最小割值
     assert cut_set_sum == min_cut_value  # 确保二者相等才可以得正确的划分
-    return cut_set, partition_edge
+    return cut_set, graph_partition_edge
