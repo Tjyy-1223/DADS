@@ -68,17 +68,7 @@ def model_partition(model, model_partition_edge):
             idx += 1
         return edge_model, cloud_model
     else:
-        if (isinstance(model, GoogLeNet.Inception) or isinstance(model, GoogLeNet2.Inception)
-            or isinstance(model, Inceptionv2.Inception)
-        ) and len(keys) > 1:
-            edge_Inception, cloud_Inception = construct_edge_inception(model, block_dict)
-            edge_model.add_module(f"{index}-{edge_Inception.__class__.__name__}", edge_Inception)
-            index += 1
-            cloud_model.add_module(f"{index}-{cloud_Inception.__class__.__name__}", cloud_Inception)
-            index += 1
-            return index
-
-
+        return None,None
 
 
 def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
@@ -94,67 +84,3 @@ def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
     graph_partition_edge, dict_node_layer = algorithm_DSL(model, model_input, bandwidth, net_type)
     # 获得在DNN模型哪层之后划分
     model_partition_edge = get_partition_points(graph_partition_edge, dict_node_layer)
-
-
-
-
-def construct_edge_inception(model,block_dict):
-    """
-    构建Inception的边端模型和云端模型
-    :param model: 传入一个需要划分的Inception block
-    :param block_dict: Inception的划分dict
-    :return: edge_Inception,cloud_Inception
-    """
-    assert len(block_dict) == 4
-    index = 0
-    branches = [model.branch1, model.branch2, model.branch3, model.branch4]
-    lens = [len(branches[0]),len(branches[1]),len(branches[2]),len(branches[3])]
-
-    ac_lens = []
-    ac_len = 0
-    for i in range(4):
-        ac_len += lens[i]
-        ac_lens.append(ac_len)
-
-    edge_branches = []
-    cloud_branches = []
-    for edge in block_dict.keys():
-        # 选取 edge[0] 为对应划分点
-        partition_point = edge[0]
-        edge_branch = nn.Sequential()
-        cloud_branch = nn.Sequential()
-
-        # 分四种情况对 google branch的四个分支进行处理
-        block = None
-        if edge[0] in range(0,ac_lens[0] + 1) or edge[1] in range(0,ac_lens[0] + 1):
-            block = branches[0]
-            if partition_point > 0:  partition_point -= 0
-        elif edge[0] in range(ac_lens[0] + 1,ac_lens[1] + 1) or edge[1] in range(ac_lens[0] + 1,ac_lens[1] + 1):
-            block = branches[1]
-            if partition_point > 0:  partition_point -= ac_lens[0]
-        elif edge[0] in range(ac_lens[1] + 1, ac_lens[2] + 1) or edge[1] in range(ac_lens[1] + 1, ac_lens[2] + 1):
-            block = branches[2]
-            if partition_point > 0:  partition_point -= ac_lens[1]
-        elif edge[0] in range(ac_lens[2] + 1, ac_lens[3] + 1) or edge[1] in range(ac_lens[2] + 1, ac_lens[3] + 1):
-            block = branches[3]
-            if partition_point > 0:  partition_point -= ac_lens[2]
-
-
-        # 构建对应的 edge branch 以及 cloud branch
-        index = construct_edge_model(block, edge_branch, partition_point, index)
-
-        if partition_point < len(block):
-            child_dict = block_dict[edge]
-            # 取出模型的第 partition_point + 1 层
-            child_block = block[partition_point]
-            # 递归对child block进行模型分割
-            index = get_partition_model(child_block,child_dict,edge_branch,cloud_branch,index)
-
-        index = construct_cloud_model(block,cloud_branch,partition_point+1,index)
-        edge_branches.append(edge_branch)
-        cloud_branches.append(cloud_branch)
-
-    # 使用 edge_branches 以及 cloud_branches 构建 EdgeInception 以及 CloudInception 两个类
-    edge_Inception = GoogLeNet.EdgeInception(edge_branches)
-    cloud_Inception = GoogLeNet.CloudInception(cloud_branches)
-    return edge_Inception,cloud_Inception

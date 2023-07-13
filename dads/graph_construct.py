@@ -118,15 +118,15 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     dict_node_layer = {"v0": 0}  # 初始化v0对应的为初始输入
 
     """
-    dict_layer_input_size 以及 dict_layer_input 字典的作用：
-        :key 原DNN中第几层 layer_index
-        :value DNN中第 layer_index 的层输入以及输入的大小
-    可以用于查找原模型中第 layer_index 层的输入是什么
+    dict_layer_input 以及 dict_layer_output 字典的作用：
+        :key 原DNN中第几层 layer_index 
+        :value DNN中第 layer_index 的层输入以及输出是什么
+    第 layer_index 层的输入与输出，可以使用 shape 以及前三个元素确定是否为同1输入
     注意：
         layer_index = 0 代表初始输入 
         layer_index = n 获取的是原模型中 model[layer_index-1] 层的输入
     """
-    dict_layer_input_size = {0:None}  # 第0层为初始输入 其输入记录为None
+    dict_layer_input = {0: None}  # 第0层为初始输入 其输入记录为None
     dict_layer_output = {0: input}  # 第0层为初始输入 其输出即为input
 
     cloud_vertex = "cloud"  # 云端设备节点
@@ -151,11 +151,11 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
         record_flag = model.has_dag_topology and (layer_index+1) in model.record_output_list
         # 枸橘修改后的input进行边的构建
         vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer, dict_input_size_node_name, dict_node_layer,
-                                           dict_layer_input_size, dict_layer_output, record_flag=record_flag)
+                                           dict_layer_input, dict_layer_output, record_flag=record_flag)
 
     # 主要负责处理出度大于1的顶点
     prepare_for_partition(graph, vertex_index, dict_node_layer)
-    return graph, dict_node_layer, dict_layer_input_size
+    return graph, dict_node_layer, dict_layer_input
 
 
 def get_node_name(input, vertex_index, dict_input_size_node_name):
