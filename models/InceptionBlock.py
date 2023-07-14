@@ -127,16 +127,17 @@ class InceptionBlock(nn.Module):
         return self.accumulate_len[-1] + 1
 
     def __getitem__(self, item):
+
         # 如果超出范围 则停止迭代
-        if self.item >= self.accumulate_len[-1] + 1:
+        if item >= self.accumulate_len[-1] + 1:
             raise StopIteration()
 
         # 根据传入的item取出正确的DNN层
-        part_index = getBlockIndex(self.item, self.accumulate_len)
+        part_index = getBlockIndex(item, self.accumulate_len)
         if part_index == 0:
-            layer = self.branch_list[part_index][self.item]
+            layer = self.branch_list[part_index][item]
         elif part_index < len(self.accumulate_len):
-            layer = self.branch_list[part_index][self.item - self.accumulate_len[part_index - 1]]
+            layer = self.branch_list[part_index][item - self.accumulate_len[part_index - 1]]
         else:
             layer = self.concat
         return layer
@@ -170,4 +171,3 @@ class Inception_SentenceIterator(abc.Iterator):
 
         self._index += 1
         return layer
-

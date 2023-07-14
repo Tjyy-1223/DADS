@@ -67,7 +67,9 @@ def model_partition(model, model_partition_edge):
             idx += 1
         return edge_model, cloud_model
     else:
+
         return None,None
+
 
 
 def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
@@ -83,6 +85,9 @@ def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
     graph_partition_edge, dict_node_layer = algorithm_DSL(model, model_input, bandwidth, net_type)
     # 获得在DNN模型哪层之后划分
     model_partition_edge = get_partition_points(graph_partition_edge, dict_node_layer)
+
+    graph, _, _ = graph_construct(model, model_input, bandwidth=bandwidth, net_type=net_type)
+
     # 获取划分后的边缘端模型和云端模型
     edge_model, cloud_model = model_partition(model, model_partition_edge)
     return edge_model,cloud_model

@@ -10,9 +10,10 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from utils import inference_utils
-import dads_framework.dinic as dinic
+from dads_framework.dinic  import dinic_algorithm
 import dads_framework.dads as dads
-
+from dads_framework.graph_construct import graph_construct
+from dads_framework.collaborative_inference import obtain_pre_node_dict,transfer_graph_into_model
 if __name__ == '__main__':
     x = torch.rand((1,3,224,224))
     # # print(str(x[0][0][0][:5]))
@@ -22,12 +23,18 @@ if __name__ == '__main__':
     # y = torch.rand(x.shape)
     # print(y.shape)
 
-    model = inference_utils.get_dnn_model("easy_net")
-    edge_model,cloud_model = dads.algorithm_dads(model,x,bandwidth=10)
+    model = inference_utils.get_dnn_model("inception")
+    print(len(model))
+    # graph, dict_node_layer, dict_layer_input_size = graph_construct(model, x, bandwidth=10)
+    # min_cut_value, reachable, non_reachable = dinic_algorithm(graph)
+    #
+    # transfer_graph_into_model(model, graph,dict_node_layer,reachable,non_reachable)
 
-    print(edge_model)
-    print("---------------------")
-    print(cloud_model)
+    index = 1
+    print(model[10])
+    for layer in model:
+        print(index,layer)
+        index+=1
 
 
 

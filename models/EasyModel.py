@@ -66,7 +66,7 @@ class EasyModel(nn.Module):
         return self.concat(outputs)
 
     def __len__(self):
-        return self.accumulate_len[-1] + 1
+        return len(self.layer_list)
 
     def __getitem__(self, item):
         # 如果超出范围 则停止迭代
