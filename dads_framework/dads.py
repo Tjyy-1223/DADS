@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from dads_framework.dinic import dinic_algorithm, get_min_cut_set
+from dads_framework.dinic import dinic_algorithm
 from dads_framework.graph_construct import graph_construct
 
 def algorithm_DSL(model, model_input, bandwidth, net_type="wifi"):

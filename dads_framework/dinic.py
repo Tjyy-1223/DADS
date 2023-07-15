@@ -146,32 +146,3 @@ def dinic_algorithm(origin_digraph):
         else:   non_reachable.add(node)
 
     return min_cut_value, reachable, non_reachable
-
-
-def get_min_cut_set(graph, min_cut_value, reachable, non_reachable):
-    """
-    根据最小割算法得到的 min_cut_value, reachable, non_reachable 获取对应的最小割集
-    可以根据最小割集帮助 DNN 找到对应的划分层
-    :param graph: 构建好的有向图
-    :param min_cut_value: 最小割的值，用于assert验证，确保划分正确
-    :param reachable: 划分后可以到达的顶点
-    :param non_reachable: 划分后不可到达的顶点
-    :return: min_cut_set 最小割集，partition_edge表示在DNN模型中的划分点（即不包含 edge 和 cloud 相关的边）
-    """
-    start = 'edge'
-    end = 'cloud'
-
-    cut_set = []
-    graph_partition_edge = []
-    for u, nbrs in ((n, graph[n]) for n in reachable):
-        for v in nbrs:
-            if v in non_reachable:
-                if u != start and v != end:
-                    graph_partition_edge.append((u, v))
-                cut_set.append((u, v))
-
-    # 通过 cut-set 得到的最小割值
-    cut_set_sum = round(sum(graph.edges[u, v]["capacity"] for (u, v) in cut_set), 3)
-    min_cut_value = round(min_cut_value,3)  # 通过 dinic 算法得到的最小割值
-    assert cut_set_sum == min_cut_value  # 确保二者相等才可以得正确的划分
-    return cut_set, graph_partition_edge

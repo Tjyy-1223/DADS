@@ -70,7 +70,7 @@ class EasyModel(nn.Module):
 
     def __getitem__(self, item):
         # 如果超出范围 则停止迭代
-        if self.item >= len(self.layer_list):
+        if item >= len(self.layer_list):
             raise StopIteration()
 
         # 根据传入的item取出正确的DNN层
