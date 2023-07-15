@@ -24,9 +24,14 @@ if __name__ == '__main__':
     print(len(model))
     graph, dict_node_layer, dict_layer_input_size = graph_construct(model, x, bandwidth=10)
     min_cut_value, reachable, non_reachable = dinic_algorithm(graph)
+    model = model.to("cuda")
 
     edge_model, cloud_model = edge_cloud_model(model,graph,dict_node_layer,min_cut_value, reachable, non_reachable)
+    edge_model = edge_model.to("cuda")
+    # print(next(model.parameters()).is_cuda)
 
+    edge_model = edge_model.cuda()
+    print(next(edge_model.parameters()).device)
     # edge_model.info()
     mid_x = edge_model(x)
     for x in mid_x.keys():
@@ -36,6 +41,7 @@ if __name__ == '__main__':
     print("========================")
     # cloud_model.info()
     end_x = cloud_model(mid_x)
+
     for x in end_x.keys():
         print(x,end_x[x].shape)
 
