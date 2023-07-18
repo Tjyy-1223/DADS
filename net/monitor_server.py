@@ -21,7 +21,7 @@ def get_bandwidth(conn):
 
     # 计算带宽 MB/s
     bandwidth = (data_size/1024/1024) / (latency / 1000)
-    # print(f"monitor server get bandwidth : {bandwidth} MB/s ")
+    print(f"monitor server get bandwidth : {bandwidth} MB/s ")
     return bandwidth
 
 

@@ -1,8 +1,11 @@
+import pickle
+
 import torch
 import sys, getopt
-from net import net_utils
-from utils.inference_utils import get_dnn_model
+from utils.inference_utils import get_dnn_model,recordTime
+from net.net_utils import start_client
 from net.monitor_client import MonitorClient
+from dads_framework.dads import algorithm_DSL,get_partition_points
 import multiprocessing
 
 import warnings
@@ -11,8 +14,8 @@ warnings.filterwarnings("ignore")
 
 """
     边缘设备api，用于启动边缘设备，进行前半部分计算后，将中间数据传递给云端设备
-    client 启动指令 python edge_api.py -i 127.0.0.1 -p 9999 -d cpu -t alex_net
-    "-t", "--type"          模型种类参数 "alex_net" "vgg_net" "le_net" "mobile_net"
+    client 启动指令 python edge_api.py -i 127.0.0.1 -p 9999 -d cpu -t easy_net
+    "-t", "--type"          模型种类参数 "alex_net" "vgg_net" "easy_net" "inception" "inception_v2"
     "-i", "--ip"            服务端 ip地址
     "-p", "--port"          服务端 开放端口
     "-d", "--device"     是否开启客户端GPU计算 cpu or cuda
@@ -63,8 +66,15 @@ if __name__ == '__main__':
 
     # 部署阶段 - 选择优化分层点
     upload_bandwidth = bandwidth_value.value  # MBps
-    # partition_point = neuron_surgeon_deployment(model,network_type="wifi",define_speed=upload_bandwidth,show=False)
+    # upload_bandwidth = 5  # MBps
+
+    # 获得图中的割集以及dict_node_layer字典
+    graph_partition_edge, dict_node_layer = algorithm_DSL(model, x, bandwidth=upload_bandwidth)
+    # 获得在DNN模型哪层之后划分
+    model_partition_edge = get_partition_points(graph_partition_edge, dict_node_layer)
+
+    print(f"partition edges : {model_partition_edge}")
 
     # 使用云边协同的方式进行模拟
-    # net_utils.start_client(ip,port,x,model_type,partition_point,device)
+    start_client(ip,port,x,model_type,model_partition_edge,device)
 

@@ -139,6 +139,7 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     vertex_index = 0  # 构建图的顶点序号
 
     for layer_index, layer in enumerate(model):
+        # print(layer_index,layer)
         # 对于某一层先检查其输入是否要进行修改
         if model.has_dag_topology and (layer_index+1) in model.dag_dict.keys():
             pre_input_cond = model.dag_dict[layer_index+1]  # 取出其前置输入条件

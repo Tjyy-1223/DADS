@@ -5,7 +5,6 @@ import torch
 import platform
 import speedtest as spt
 from utils import inference_utils
-from dads_framework import dads
 
 
 def start_server(socket_server,device):
@@ -27,12 +26,12 @@ def start_server(socket_server,device):
     model = inference_utils.get_dnn_model(model_type)
 
     # 接收模型分层点
-    partition_point = get_short_data(conn)
+    model_partition_edge = get_short_data(conn)
     print(f"get partition point successfully.")
 
-    _,cloud_model = inference_utils.model_partition(model, partition_point)
+    # 获取划分后的边缘端模型和云端模型
+    _, cloud_model = inference_utils.model_partition(model, model_partition_edge)
     cloud_model = cloud_model.to(device)
-
 
     # 接收中间数据并返回传输时延
     edge_output,transfer_latency = get_data(conn)
@@ -47,15 +46,17 @@ def start_server(socket_server,device):
     conn.recv(40)
 
     inference_utils.warmUp(cloud_model, edge_output, device)
+
     # 记录云端推理时延
     cloud_output,cloud_latency = inference_utils.recordTime(cloud_model, edge_output,device,epoch_cpu=30,epoch_gpu=100)
+    print(f"{model_type} 在云端设备上推理完成 - {cloud_latency:.3f} ms")
     send_short_data(conn, cloud_latency, "cloud latency")
 
     print("================= DNN Collaborative Inference Finished. ===================")
 
 
 
-def start_client(ip,port,input_x,model_type,partition_point,device):
+def start_client(ip,port,input_x,model_type,model_partition_edge,device):
     """
     启动一个client客户端 向server端发起推理请求
     一般仅在 edge_api.py 中直接调用
@@ -63,7 +64,7 @@ def start_client(ip,port,input_x,model_type,partition_point,device):
     :param port: server端的端口地址
     :param model_type: 选用的模型类型
     :param input_x: 初始输入
-    :param partition_point 模型划分点
+    :param model_partition_edge 模型划分集合
     :param device: 在本地cpu运行还是cuda运行
     :return: None
     """
@@ -76,9 +77,10 @@ def start_client(ip,port,input_x,model_type,partition_point,device):
     model = inference_utils.get_dnn_model(model_type)
 
     # 发送划分点
-    send_short_data(conn,partition_point,msg="partition strategy")
+    send_short_data(conn,model_partition_edge,msg="partition strategy")
 
-    edge_model, _ = inference_utils.model_partition(model, partition_point)
+    # 获取划分后的边缘端模型和云端模型
+    edge_model, _ = inference_utils.model_partition(model, model_partition_edge)
     edge_model = edge_model.to(device)
 
     # 开始边缘端的推理 首先进行预热

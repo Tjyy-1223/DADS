@@ -7,8 +7,11 @@ from sklearn import metrics
 from collections.abc import Iterable
 import joblib
 import os
-from models.MobileNet import ConvNormActivation,InvertedResidual
 from predictor.get_datasets_func import get_datasets_by_kernel_kind
+from models.EasyModel import Operation_Concat as con1
+from models.InceptionBlock import Operation_Concat as con2
+from models.InceptionBlockV2 import Operation_Concat as con3
+
 
 """
     1. 主要为构建预测模型 prediction models需要用到的函数
@@ -126,8 +129,6 @@ def judge_block(layer):
     判断 layer 是否为一个自定义block类型
     例如 MobileNet、ResNet、googleNet中的block
     """
-    if isinstance(layer,ConvNormActivation) or isinstance(layer,InvertedResidual):
-        return True
     if isinstance(layer,Iterable):
         return True
     return False
@@ -341,7 +342,9 @@ def predict_kernel_latency(input_features,layer, device, predictor_dict):
         return get_avgPool2d_lat(input_features,layer, device, predictor_dict)
     elif isinstance(layer,nn.BatchNorm2d):
         return get_batchNorm_lat(input_features,layer, device, predictor_dict)
-    elif isinstance(layer,nn.Flatten) or isinstance(layer,nn.ReLU) or isinstance(layer,nn.Dropout) or isinstance(layer,nn.ReLU6):
+    elif isinstance(layer,nn.Flatten) or isinstance(layer,nn.ReLU) \
+            or isinstance(layer,nn.Dropout) or isinstance(layer,nn.ReLU6)\
+            or isinstance(layer,con1) or isinstance(layer,con2) or isinstance(layer,con3):
         return 0
     else:
         raise RuntimeError("kernel latency 不能预测此种类型的DNN层，请到predictor进行对应的源码修改")

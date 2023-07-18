@@ -8,6 +8,10 @@ from models.EasyModel import EasyModel
 from models.InceptionBlock import InceptionBlock
 from models.InceptionBlockV2 import InceptionBlockV2
 
+import models.InceptionBlock as Inception
+import models.InceptionBlockV2 as Inception_v2
+import models.EasyModel as Easynet
+
 from utils.excel_utils import *
 
 
@@ -241,3 +245,37 @@ def recordTimeCpu(model, input_data, device, epoch):
         all_time += curr_time
     all_time /= epoch
     return res_x, all_time * 1000
+
+
+def model_partition(model, model_partition_edge):
+    """
+    根据 model_partition_edge 对DNN模型-model进行划分
+    :param model: 传入的DNN模型
+    :param model_partition_edge:模型分层点
+    :return: 边缘端模型 edge_model, 云端模型 cloud_model
+    """
+    # 如果 model_partition_edge 是[]，代表模型全部部署在边缘执行
+    if len(model_partition_edge) == 0:
+        return model,nn.Sequential()
+
+    # 开始构建边端模型和云端模型
+    edge_model, cloud_model = nn.Sequential(), nn.Sequential()
+    if isinstance(model, Inception.InceptionBlock):
+        return Inception.construct_edge_cloud_inception_block(model, model_partition_edge)
+    if isinstance(model, Inception_v2.InceptionBlockV2):
+        return Inception_v2.construct_edge_cloud_inception_block(model, model_partition_edge)
+    if isinstance(model, Easynet.EasyModel):
+        return Easynet.construct_edge_cloud_inception_block(model,model_partition_edge)
+
+    if len(model_partition_edge) == 1:  # 使用链式结构的划分
+        partition_point = model_partition_edge[0][0]
+        idx = 1
+        for layer in model:
+            if idx <= partition_point:
+                edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            else:
+                cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            idx += 1
+        return edge_model, cloud_model
+
+

@@ -39,15 +39,15 @@ class EasyModel(nn.Module):
     def __init__(self,in_channels:int = 3) -> None:
         super(EasyModel, self).__init__()
         self.preInference = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=192, kernel_size=(7, 7), stride=(2, 2), padding=3)
+            nn.Conv2d(in_channels=in_channels, out_channels=32, kernel_size=(7, 7), stride=(2, 2))
         )
 
         self.branch1 = nn.Sequential(
-            nn.Conv2d(in_channels=192, out_channels=32, kernel_size=(3, 3), padding=1)
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), padding=1)
         )
 
         self.branch2 = nn.Sequential(
-            nn.Conv2d(in_channels=192, out_channels=16, kernel_size=(3, 3), padding=1)
+            nn.Conv2d(in_channels=32, out_channels=16, kernel_size=(3, 3), padding=1)
         )
         self.concat = Operation_Concat()
 
