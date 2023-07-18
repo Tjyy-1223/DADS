@@ -1,14 +1,14 @@
 import networkx as nx
 import sys
+from predictor.predictor_utils import predict_model_latency
+from net.net_utils import get_speed
+import pickle
 
 inf = sys.maxsize
 construction_time = 0.0
+predictor_dict = {}
 
-import warnings
-warnings.filterwarnings('ignore')
-
-
-def add_graph_edge(graph, vertex_index, input, layer_index, layer,
+def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, net_type,
                  dict_input_size_node_name, dict_node_layer, dict_layer_input_size, dict_layer_output,
                  record_flag):
     """
@@ -18,6 +18,8 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer,
     :param input: 当前层的输入
     :param layer_index: 当前层
     :param layer: 当前层类型
+    :param bandwidth: 网络带宽
+    :param net_type: 网络类型
     :param dict_input_size_node_name:   字典：key:输入 value:对应的顶点编号
     :param dict_node_layer:             字典：key:顶点编号 value:对应DNN中第几层
     :param dict_layer_input_size:       字典：key:DNN中第几层 value:对应的输入大小
@@ -29,14 +31,14 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer,
     edge_vertex = "edge"  # 边缘设备节点
 
     # 获取当前层在边缘端设备上的推理时延以及在云端设备上的推理时延
-    edge_lat = 5
-    cloud_lat = 5
-    # edge_lat = predictor.predict_layer_latency(layer,x,edge_device=True)
-    # cloud_lat = predictor.predict_layer_latency(layer,x,edge_device=False)
+    edge_lat = predict_model_latency(input, layer, device="edge", predictor_dict=predictor_dict)
+    cloud_lat = predict_model_latency(input, layer, device="cloud", predictor_dict=predictor_dict)
 
     # 获取当前层需要的传输时延
-    # transmission_lat = get_transmission_lat(x,network_type=net_type,define_speed=define_speed)
-    transmission_lat = 5
+    #   predict transmission latency,network_type = WI-FI
+    transport_size = len(pickle.dumps(input))
+    speed = get_speed(network_type=net_type,bandwidth=bandwidth)
+    transmission_lat = transport_size / speed
 
     # 一层dnn layer可以构建一条边，而构建一条边需要两个顶点
     # dict_input_size_node_name 可以根据输入数据大小构建对应的图顶点
@@ -150,7 +152,8 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
         # 标记在模型中 record_output_list 中的DNN层需要记录输出
         record_flag = model.has_dag_topology and (layer_index+1) in model.record_output_list
         # 枸橘修改后的input进行边的构建
-        vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer, dict_input_size_node_name, dict_node_layer,
+        vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, net_type,
+                                             dict_input_size_node_name, dict_node_layer,
                                            dict_layer_input, dict_layer_output, record_flag=record_flag)
 
     # 主要负责处理出度大于1的顶点

@@ -5,6 +5,7 @@ import torch
 import platform
 import speedtest as spt
 from utils import inference_utils
+from dads_framework import dads
 
 
 def start_server(socket_server,device):
