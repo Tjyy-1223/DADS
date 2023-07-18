@@ -6,7 +6,7 @@ from models.AlexNet import AlexNet
 from models.VggNet import VggNet
 from models.EasyModel import EasyModel
 from models.InceptionBlock import InceptionBlock
-from models.IncetiopnBlockV2 import InceptionBlockV2
+from models.InceptionBlockV2 import InceptionBlockV2
 
 from utils.excel_utils import *
 

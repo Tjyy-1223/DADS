@@ -38,62 +38,199 @@ class EasyModel(nn.Module):
     """
     def __init__(self,in_channels:int = 3) -> None:
         super(EasyModel, self).__init__()
-        self.preInference = nn.Conv2d(in_channels=in_channels,out_channels=192,kernel_size=(7,7), stride=(2,2), padding=3)
-        self.up_conv = nn.Conv2d(in_channels=192,out_channels=32,kernel_size=(3,3),padding=1)
-        self.down_conv = nn.Conv2d(in_channels=192,out_channels=16,kernel_size=(3,3),padding=1)
+        self.preInference = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=192, kernel_size=(7, 7), stride=(2, 2), padding=3)
+        )
+
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(in_channels=192, out_channels=32, kernel_size=(3, 3), padding=1)
+        )
+
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(in_channels=192, out_channels=16, kernel_size=(3, 3), padding=1)
+        )
         self.concat = Operation_Concat()
 
-        self.layer_list = [self.preInference, self.up_conv, self.down_conv, self.concat]
+        self.branch_list = [self.preInference, self.branch1, self.branch2]
+        self.accumulate_len = []
+        for i in range(len(self.branch_list)):
+            if i == 0:
+                self.accumulate_len.append(len(self.branch_list[i]))
+            else:
+                self.accumulate_len.append(self.accumulate_len[i - 1] + len(self.branch_list[i]))
+
 
         # 如果是DAG拓扑结构需要自己设计好下面几个设定
         self.has_dag_topology = True
-        self.record_output_list = [1,2,3]  # 哪几层需要保存输出
+        self.record_output_list = [self.accumulate_len[0], self.accumulate_len[1], self.accumulate_len[2]]  # 哪几层需要保存输出
         self.dag_dict = {   # 定义DAG拓扑相关层的输入
-            2: 1,
-            3: 1,
-            4: [2, 3],
+            self.accumulate_len[0] + 1: self.accumulate_len[0],
+            self.accumulate_len[1] + 1: self.accumulate_len[0],
+            self.accumulate_len[2] + 1: [self.accumulate_len[1], self.accumulate_len[2],],
         }
 
     def _forward(self,x: Tensor) -> List[Tensor]:
-        x = self.preInference(x)
-        x1 = self.up_conv(x)
-        x2 = self.down_conv(x)
-        outputs = [x1,x2]
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        outputs = [branch1,branch2]
         return outputs
 
     def forward(self, x: Tensor) -> Tensor:
+        x = self.preInference(x)
         outputs = self._forward(x)
         return self.concat(outputs)
 
     def __len__(self):
-        return len(self.layer_list)
+        return self.accumulate_len[-1] + 1
 
     def __getitem__(self, item):
         # 如果超出范围 则停止迭代
-        if item >= len(self.layer_list):
+        if item >= self.accumulate_len[-1] + 1:
             raise StopIteration()
 
         # 根据传入的item取出正确的DNN层
-        layer = self.layer_list[item]
+        part_index = getBlockIndex(item, self.accumulate_len)
+        if part_index == 0:
+            layer = self.branch_list[part_index][item]
+        elif part_index < len(self.accumulate_len):
+            layer = self.branch_list[part_index][item - self.accumulate_len[part_index - 1]]
+        else:
+            layer = self.concat
         return layer
 
     def __iter__(self):
-        return Inception_SentenceIterator(self.layer_list)
+        return Inception_SentenceIterator(self.branch_list,self.concat,self.accumulate_len)
 
 
 
 class Inception_SentenceIterator(abc.Iterator):
-    def __init__(self,layer_list):
-        self.layer_list = layer_list
+    def __init__(self,branch_list,concat,accumulate_len):
+        self.branch_list = branch_list
+        self.accumulate_len = accumulate_len
+        self.concat = concat
+
         self._index = 0
+
 
     def __next__(self):
         # 如果超出范围 则停止迭代
-        if self._index >= len(self.layer_list):
+        if self._index >= self.accumulate_len[-1] + 1:
             raise StopIteration()
 
         # 根据传入的item取出正确的DNN层
-        layer = self.layer_list[self._index]
+        part_index = getBlockIndex(self._index, self.accumulate_len)
+        if part_index == 0:
+            layer = self.branch_list[part_index][self._index]
+        elif part_index < len(self.accumulate_len):
+            layer = self.branch_list[part_index][self._index - self.accumulate_len[part_index - 1]]
+        else:
+            layer = self.concat
+
         self._index += 1
         return layer
 
+
+class easy_dag_part(nn.Module):
+    def __init__(self,branches):
+        super(easy_dag_part, self).__init__()
+        self.branch1 = branches[0]
+        self.branch2 = branches[1]
+        self.concat = Operation_Concat()
+    def forward(self,x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        outputs = [branch1, branch2]
+        return self.concat(outputs)
+
+
+class EdgeInception(nn.Module):
+    """
+    edge Inception 用于构建划分好的边端Inception
+    """
+    def __init__(self,edge_branches):
+        super(EdgeInception, self).__init__()
+        self.branch1 = edge_branches[0]
+        self.branch2 = edge_branches[1]
+    def forward(self,x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        outputs = [branch1, branch2]
+        return outputs
+
+
+class CloudInception(nn.Module):
+    """
+        cloud Inception 用于构建划分好的云端Inception
+    """
+    def __init__(self, cloud_branches):
+        super(CloudInception, self).__init__()
+        self.branch1 = cloud_branches[0]
+        self.branch2 = cloud_branches[1]
+        self.concat = Operation_Concat()
+
+    def forward(self, x):
+        branch1 = self.branch1(x[0])
+        branch2 = self.branch2(x[1])
+        outputs = [branch1, branch2]
+        return self.concat(outputs)
+
+
+def construct_edge_cloud_inception_block(model: EasyModel, model_partition_edge: list):
+    """
+    构建Inception的边端模型和云端模型
+    :param model: 传入一个需要划分的Inception block
+    :param model_partition_edge: Inception的划分点 (start_layer,end_layer)
+    :return: edge_Inception,cloud_Inception
+    """
+    accumulate_len = model.accumulate_len
+    edge_model,cloud_model = nn.Sequential(),nn.Sequential()
+    if len(model_partition_edge) == 1:  # 只有一个地方需要划分
+        partition_point = model_partition_edge[0][0]
+        assert partition_point <= accumulate_len[0] + 1
+        idx = 1
+        for layer in model:
+            if idx > accumulate_len[0]: break
+            if idx <= partition_point:
+                edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            else:
+                cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            idx += 1
+        layer = easy_dag_part(model.branch_list[1:])
+        cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+    else:  # 需要在4个branch之间进行划分
+        assert len(model_partition_edge) == 2
+        branches = model.branch_list[1:]
+        edge_model.add_module(f"1-preInference", model.preInference)
+
+        edge_branches = []
+        cloud_branches = []
+        for edge in model_partition_edge:
+            edge_branch = nn.Sequential()
+            cloud_branch = nn.Sequential()
+
+            block,tmp_point = None,None
+            if edge[0] in range(accumulate_len[0] + 1, accumulate_len[1] + 1) or edge[1] in range(accumulate_len[0] + 1,accumulate_len[1] + 1):
+                block = branches[0]
+                tmp_point = edge[0] - accumulate_len[0]
+            elif edge[0] in range(accumulate_len[1] + 1, accumulate_len[2] + 1) or edge[1] in range(accumulate_len[1] + 1, accumulate_len[2] + 1):
+                block = branches[1]
+                tmp_point = edge[0] - accumulate_len[1]
+
+            idx = 1
+            for layer in block:
+                if idx <= tmp_point:
+                    edge_branch.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+                else:
+                    cloud_branch.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+                idx += 1
+
+            edge_branches.append(edge_branch)
+            cloud_branches.append(cloud_branch)
+
+        # 使用 edge_branches 以及 cloud_branches 构建 EdgeInception 以及 CloudInception 两个类
+        edge_Inception = EdgeInception(edge_branches)
+        cloud_Inception = CloudInception(cloud_branches)
+
+        edge_model.add_module(f"2-edge-inception", edge_Inception)
+        cloud_model.add_module(f"1-cloud-inception", cloud_Inception)
+    return edge_model, cloud_model

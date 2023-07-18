@@ -127,7 +127,6 @@ class InceptionBlock(nn.Module):
         return self.accumulate_len[-1] + 1
 
     def __getitem__(self, item):
-
         # 如果超出范围 则停止迭代
         if item >= self.accumulate_len[-1] + 1:
             raise StopIteration()
@@ -171,3 +170,134 @@ class Inception_SentenceIterator(abc.Iterator):
 
         self._index += 1
         return layer
+
+
+class inception_dag_part(nn.Module):
+    """
+        提取出inception中的DAG部分 设self.preInference层数为p
+        则在第p层（包含第p层）之后进行划分 可以将后面的部分直接使用inception_dag_part
+    """
+    def __init__(self,branches):
+        super(inception_dag_part, self).__init__()
+        self.branch1 = branches[0]
+        self.branch2 = branches[1]
+        self.branch3 = branches[2]
+        self.branch4 = branches[3]
+        self.concat = Operation_Concat()
+    def forward(self,x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        branch3 = self.branch3(x)
+        branch4 = self.branch4(x)
+
+        outputs = [branch1, branch2, branch3, branch4]
+        return self.concat(outputs)
+
+
+class EdgeInception(nn.Module):
+    """
+    edge Inception 用于构建划分好的边端Inception
+    """
+    def __init__(self,edge_branches):
+        super(EdgeInception, self).__init__()
+        self.branch1 = edge_branches[0]
+        self.branch2 = edge_branches[1]
+        self.branch3 = edge_branches[2]
+        self.branch4 = edge_branches[3]
+    def forward(self,x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        branch3 = self.branch3(x)
+        branch4 = self.branch4(x)
+
+        outputs = [branch1, branch2, branch3, branch4]
+        return outputs
+
+
+class CloudInception(nn.Module):
+    """
+        cloud Inception 用于构建划分好的云端Inception
+    """
+    def __init__(self, cloud_branches):
+        super(CloudInception, self).__init__()
+        self.branch1 = cloud_branches[0]
+        self.branch2 = cloud_branches[1]
+        self.branch3 = cloud_branches[2]
+        self.branch4 = cloud_branches[3]
+        self.concat = Operation_Concat()
+
+    def forward(self, x):
+        branch1 = self.branch1(x[0])
+        branch2 = self.branch2(x[1])
+        branch3 = self.branch3(x[2])
+        branch4 = self.branch4(x[3])
+
+        outputs = [branch1, branch2, branch3, branch4]
+        return self.concat(outputs)
+
+
+def construct_edge_cloud_inception_block(model: InceptionBlock, model_partition_edge: list):
+    """
+    构建Inception的边端模型和云端模型
+    :param model: 传入一个需要划分的Inception block
+    :param model_partition_edge: Inception的划分点 (start_layer,end_layer)
+    :return: edge_Inception,cloud_Inception
+    """
+    accumulate_len = model.accumulate_len
+    edge_model,cloud_model = nn.Sequential(),nn.Sequential()
+    if len(model_partition_edge) == 1:  # 只有一个地方需要划分
+        partition_point = model_partition_edge[0][0]
+        assert partition_point <= accumulate_len[0] + 1
+        idx = 1
+        for layer in model:
+            if idx > accumulate_len[0]: break
+            if idx <= partition_point:
+                edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            else:
+                cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            idx += 1
+        layer = inception_dag_part(model.branch_list[1:])
+        cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+    else:  # 需要在4个branch之间进行划分
+        assert len(model_partition_edge) == 4
+        branches = model.branch_list[1:]
+        edge_model.add_module(f"1-preInference", model.preInference)
+
+        edge_branches = []
+        cloud_branches = []
+        for edge in model_partition_edge:
+            edge_branch = nn.Sequential()
+            cloud_branch = nn.Sequential()
+
+            block,tmp_point = None,None
+            if edge[0] in range(accumulate_len[0] + 1, accumulate_len[1] + 1) or edge[1] in range(accumulate_len[0] + 1,accumulate_len[1] + 1):
+                block = branches[0]
+                tmp_point = edge[0] - accumulate_len[0]
+            elif edge[0] in range(accumulate_len[1] + 1, accumulate_len[2] + 1) or edge[1] in range(accumulate_len[1] + 1, accumulate_len[2] + 1):
+                block = branches[1]
+                tmp_point = edge[0] - accumulate_len[1]
+            elif edge[0] in range(accumulate_len[2] + 1, accumulate_len[3] + 1) or edge[1] in range(accumulate_len[2] + 1, accumulate_len[3] + 1):
+                block = branches[2]
+                tmp_point = edge[0] - accumulate_len[2]
+            elif edge[0] in range(accumulate_len[3] + 1, accumulate_len[4] + 1) or edge[1] in range(accumulate_len[3] + 1, accumulate_len[4] + 1):
+                block = branches[3]
+                tmp_point = edge[0] - accumulate_len[3]
+
+            idx = 1
+            for layer in block:
+                if idx <= tmp_point:
+                    edge_branch.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+                else:
+                    cloud_branch.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+                idx += 1
+
+            edge_branches.append(edge_branch)
+            cloud_branches.append(cloud_branch)
+
+        # 使用 edge_branches 以及 cloud_branches 构建 EdgeInception 以及 CloudInception 两个类
+        edge_Inception = EdgeInception(edge_branches)
+        cloud_Inception = CloudInception(cloud_branches)
+
+        edge_model.add_module(f"2-edge-inception", edge_Inception)
+        cloud_model.add_module(f"1-cloud-inception", cloud_Inception)
+    return edge_model, cloud_model

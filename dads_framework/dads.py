@@ -1,7 +1,10 @@
 import torch.nn as nn
 
-from dads_framework.dinic import dinic_algorithm
+from dads_framework.dinic import dinic_algorithm,get_min_cut_set
 from dads_framework.graph_construct import graph_construct
+import models.InceptionBlock as Inception
+import models.InceptionBlockV2 as Inception_v2
+import models.EasyModel as Easynet
 
 def algorithm_DSL(model, model_input, bandwidth, net_type="wifi"):
     """
@@ -17,7 +20,7 @@ def algorithm_DSL(model, model_input, bandwidth, net_type="wifi"):
     # min_cut_value表示最短推理时延，reachable表示需要放在边缘端推理的顶点， non_reachable表示放在云端推理的顶点
     min_cut_value, reachable, non_reachable = dinic_algorithm(graph)
     # partition_edge表示图中需要切割的边
-    _, graph_partition_edge = get_min_cut_set(graph, min_cut_value, reachable, non_reachable)
+    graph_partition_edge = get_min_cut_set(graph, min_cut_value, reachable, non_reachable)
     return graph_partition_edge,dict_node_layer
 
 
@@ -27,7 +30,7 @@ def get_partition_points(graph_partition_edge, dict_node_layer):
     根据有向图的割集 graph_partition_edge 转换成DNN模型切分点 model_partition_edge
     :param graph_partition_edge: 有向图的割集
     :param dict_node_layer: 有向图顶点与模型层的对应
-    :return: model_partition_edge:模型中在哪两层之间进行分割
+    :return: model_partition_edge: 模型中在哪两层之间进行分割
     """
     model_partition_edge = []
     for graph_edge in graph_partition_edge:
@@ -50,25 +53,25 @@ def model_partition(model, model_partition_edge):
     if len(model_partition_edge) == 0:
         return model,nn.Sequential()
 
-    model_partition_points = []  # 记录对应模型的划分点
-    for layer_edge in model_partition_edge:
-        # 取出在第几层之后对模型进行划分（在第start_layer_index层之后进行划分）
-        start_layer_index, end_layer_index = layer_edge[0], layer_edge[1]
-        # 记录从模型第几层之后进行划分
-        model_partition_points.append(start_layer_index)
-
     # 开始构建边端模型和云端模型
     edge_model, cloud_model = nn.Sequential(), nn.Sequential()
-    if len(model_partition_points) == 1:  # 表示划分与DAG拓扑没有关系 使用链式结构的划分
+    if isinstance(model, Inception.InceptionBlock):
+        return Inception.construct_edge_cloud_inception_block(model, model_partition_edge)
+    if isinstance(model, Inception_v2.InceptionBlockV2):
+        return Inception_v2.construct_edge_cloud_inception_block(model, model_partition_edge)
+    if isinstance(model, Easynet.EasyModel):
+        return Easynet.construct_edge_cloud_inception_block(model,model_partition_edge)
+
+    if len(model_partition_edge) == 1:  # 使用链式结构的划分
+        partition_point = model_partition_edge[0][0]
         idx = 1
         for layer in model:
-            if idx <= model_partition_points[0]:  edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
-            else:  cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            if idx <= partition_point:
+                edge_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
+            else:
+                cloud_model.add_module(f"{idx}-{layer.__class__.__name__}", layer)
             idx += 1
         return edge_model, cloud_model
-    else:
-
-        return None,None
 
 
 
@@ -86,8 +89,8 @@ def algorithm_dads(model, model_input, bandwidth, net_type="wifi"):
     # 获得在DNN模型哪层之后划分
     model_partition_edge = get_partition_points(graph_partition_edge, dict_node_layer)
 
-    graph, _, _ = graph_construct(model, model_input, bandwidth=bandwidth, net_type=net_type)
-
     # 获取划分后的边缘端模型和云端模型
     edge_model, cloud_model = model_partition(model, model_partition_edge)
     return edge_model,cloud_model
+
+
