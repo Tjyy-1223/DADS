@@ -1,5 +1,7 @@
 import networkx as nx
 import sys
+import torch
+from utils.inference_utils import recordTime
 from predictor.predictor_utils import predict_model_latency
 from net.net_utils import get_speed
 import pickle
@@ -8,7 +10,43 @@ inf = sys.maxsize
 construction_time = 0.0
 predictor_dict = {}
 
-def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, net_type,
+
+def get_layers_latency(model, device):
+    """
+    获取模型 model 在云端设备或边端设备上的各层推理时延，用于构建有向图
+    :param model: DNN模型
+    :param device: 推理设备
+    :return: layers_latency[] 代表各层的推理时延
+    """
+    dict_layer_output = {}
+    input = torch.rand((1, 3, 224, 224))  # 初始输入数据
+
+    layers_latency = []
+    for layer_index, layer in enumerate(model):
+        # 对于某一层先检查其输入是否要进行修改
+        if model.has_dag_topology and (layer_index + 1) in model.dag_dict.keys():
+            pre_input_cond = model.dag_dict[layer_index + 1]  # 取出其前置输入条件
+            if isinstance(pre_input_cond, list):  # 如果其是一个列表，代表当前层有多个输入
+                input = []
+                for pre_index in pre_input_cond:  # 对于concat操作,输入应为一个列表
+                    input.append(dict_layer_output[pre_index])
+            else:  # 当前层的的输入从其他层或得
+                input = dict_layer_output[pre_input_cond]
+
+        if not isinstance(input,list):
+            input = input.to(device)  # 将数据放在相应设备上
+
+        layer = layer.to(device)  # 将该层放到相应设备上
+        input,lat = recordTime(layer, input, device, epoch_cpu=10, epoch_gpu=10)  # 记录推理时延
+
+        if model.has_dag_topology and (layer_index+1) in model.record_output_list:
+            dict_layer_output[layer_index + 1] = input
+        layers_latency.append(lat)
+    return layers_latency
+
+
+def add_graph_edge(graph, vertex_index, input, layer_index, layer,
+                   bandwidth, net_type, edge_latency, cloud_latency,
                  dict_input_size_node_name, dict_node_layer, dict_layer_input_size, dict_layer_output,
                  record_flag):
     """
@@ -20,6 +58,8 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, ne
     :param layer: 当前层类型
     :param bandwidth: 网络带宽
     :param net_type: 网络类型
+    :param edge_latency: 在边缘设备上推理时延
+    :param cloud_latency: 在云端设备上推理时延
     :param dict_input_size_node_name:   字典：key:输入 value:对应的顶点编号
     :param dict_node_layer:             字典：key:顶点编号 value:对应DNN中第几层
     :param dict_layer_input_size:       字典：key:DNN中第几层 value:对应的输入大小
@@ -31,8 +71,8 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, ne
     edge_vertex = "edge"  # 边缘设备节点
 
     # 获取当前层在边缘端设备上的推理时延以及在云端设备上的推理时延
-    edge_lat = predict_model_latency(input, layer, device="edge", predictor_dict=predictor_dict)
-    cloud_lat = predict_model_latency(input, layer, device="cloud", predictor_dict=predictor_dict)
+    # edge_lat = predict_model_latency(input, layer, device="edge", predictor_dict=predictor_dict)
+    # cloud_lat = predict_model_latency(input, layer, device="cloud", predictor_dict=predictor_dict)
 
     # 获取当前层需要的传输时延
     #   predict transmission latency,network_type = WI-FI
@@ -68,8 +108,8 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, ne
         graph.add_edge(start_node, end_node, capacity=transmission_lat)  # 添加从前一个节点到当前节点的边
 
     # 注意：end_node可以用来在有向图中表示当前的 dnn-layer
-    graph.add_edge(edge_vertex, end_node, capacity=cloud_lat)  # 添加从边缘节点到dnn层的边
-    graph.add_edge(end_node, cloud_vertex, capacity=edge_lat)  # 添加从dnn层到云端设备的边
+    graph.add_edge(edge_vertex, end_node, capacity=cloud_latency)  # 添加从边缘节点到dnn层的边
+    graph.add_edge(end_node, cloud_vertex, capacity=edge_latency)  # 添加从dnn层到云端设备的边
 
     dict_node_layer[end_node] = layer_index + 1  # 记录有向图中的顶点对应的DNN的第几层
     # dict_layer_input_size[layer_index + 1] = record_input.shape  # 记录DNN层中第i层对应的输入大小
@@ -80,7 +120,7 @@ def add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, ne
 
 
 
-def graph_construct(model, input, bandwidth, net_type="wifi"):
+def graph_construct(model, input, edge_latency_list, cloud_latency_list, bandwidth, net_type="wifi"):
     """
     传入一个DNN模型，construct_digraph_by_model将DNN模型构建成具有相应权重的有向图
     构建过程主要包括三个方面：
@@ -89,6 +129,8 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
     (3) 从dnn层-云端设备的边 权重设置为边端推理时延
     :param model: 传入dnn模型
     :param input: dnn模型的初始输入
+    :param edge_latency_list: 边缘设备上各层的推理时延
+    :param cloud_latency_list: 云端设备上各层的推理时延
     :param bandwidth: 当前网络时延带宽，可由带宽监视器获取 MB/s
     :param net_type: 当前网络类型 默认为 wifi
     :return: 构建好的有向图graph, dict_vertex_layer, dict_layer_input
@@ -153,7 +195,9 @@ def graph_construct(model, input, bandwidth, net_type="wifi"):
         # 标记在模型中 record_output_list 中的DNN层需要记录输出
         record_flag = model.has_dag_topology and (layer_index+1) in model.record_output_list
         # 枸橘修改后的input进行边的构建
-        vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer, bandwidth, net_type,
+        vertex_index, input = add_graph_edge(graph, vertex_index, input, layer_index, layer,
+                                             bandwidth, net_type,
+                                             edge_latency_list[layer_index],cloud_latency_list[layer_index],
                                              dict_input_size_node_name, dict_node_layer,
                                            dict_layer_input, dict_layer_output, record_flag=record_flag)
 
@@ -232,15 +276,15 @@ def prepare_for_partition(graph, vertex_index, dict_node_layer):
             graph.remove_edge(edge[0],edge[1])  # 删除原有的边
 
         # 删除 edge - old node
-        if graph.has_edge("edge", start_vex):
-            data = graph.get_edge_data("edge", start_vex)["capacity"]
-            graph.add_edge("edge", node_name, capacity=data)
-            graph.remove_edge("edge", start_vex)
+        # if graph.has_edge("edge", start_vex):
+        #     data = graph.get_edge_data("edge", start_vex)["capacity"]
+        #     graph.add_edge("edge", node_name, capacity=data)
+        #     graph.remove_edge("edge", start_vex)
         # 删除 old node - cloud
-        if graph.has_edge(start_vex, "cloud"):
-            data = graph.get_edge_data(start_vex, "cloud")["capacity"]
-            graph.add_edge(node_name, "cloud", capacity=data)
-            graph.remove_edge(start_vex, "cloud")
+        # if graph.has_edge(start_vex, "cloud"):
+        #     data = graph.get_edge_data(start_vex, "cloud")["capacity"]
+        #     graph.add_edge(node_name, "cloud", capacity=data)
+        #     graph.remove_edge(start_vex, "cloud")
 
     # 简化edge的数值 保留三位小数足够计算
     for edge in graph.edges.data():

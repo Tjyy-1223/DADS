@@ -1,11 +1,7 @@
-import pickle
-
 import torch
 import sys, getopt
-from utils.inference_utils import get_dnn_model,recordTime
-from net.net_utils import start_client
+from server_func import start_client
 from net.monitor_client import MonitorClient
-from dads_framework.dads import algorithm_DSL,get_partition_points
 import multiprocessing
 
 import warnings
@@ -56,25 +52,14 @@ if __name__ == '__main__':
     monitor_cli.join()
     print(f"get bandwidth value : {bandwidth_value.value} MB/s")
 
-
     # step2 准备input数据
     x = torch.rand(size=(1, 3, 224, 224), requires_grad=False)
     x = x.to(device)
 
-    # 客户端进行传输
-    model = get_dnn_model(model_type)
-
     # 部署阶段 - 选择优化分层点
-    upload_bandwidth = bandwidth_value.value  # MBps
-    # upload_bandwidth = 5  # MBps
-
-    # 获得图中的割集以及dict_node_layer字典
-    graph_partition_edge, dict_node_layer = algorithm_DSL(model, x, bandwidth=upload_bandwidth)
-    # 获得在DNN模型哪层之后划分
-    model_partition_edge = get_partition_points(graph_partition_edge, dict_node_layer)
-
-    print(f"partition edges : {model_partition_edge}")
+    # upload_bandwidth = bandwidth_value.value  # MBps
+    upload_bandwidth = 10  # MBps 为确保程序正确运行 这里设置为10；实机运行使用上面那行
 
     # 使用云边协同的方式进行模拟
-    start_client(ip,port,x,model_type,model_partition_edge,device)
+    start_client(ip, port, x, model_type, upload_bandwidth, device)
 
