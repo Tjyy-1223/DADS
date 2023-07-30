@@ -2,7 +2,6 @@ import networkx as nx
 import sys
 import torch
 from utils.inference_utils import recordTime
-from predictor.predictor_utils import predict_model_latency
 from net.net_utils import get_speed
 import pickle
 
